@@ -5,7 +5,7 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local Packets = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Packets"))
 
--- DATA WAYPOINTS BARU LU BRO
+-- DATA WAYPOINTS BARU LU (DENGAN TWEEN JALAN LEBIH REALISTIS)
 local waypoints = {
     {Vector3.new(-147.73, -30.07, -165.87), nil, true},
     {Vector3.new(-109.24, -24.17, -187.50), nil, true},
@@ -67,7 +67,7 @@ local waypoints = {
     {Vector3.new(18.88, -99.85, -411.12), 0.01, false},
     {Vector3.new(25.49, -99.01, -373.50), 0.01, false},
     {Vector3.new(40.41, -95.68, -371.76), nil, true},
-    {Vector3.new(57.69, -95.69, -355.40), nil, true}, -- Ganti koordinat target 61
+    {Vector3.new(57.69, -95.69, -355.40), nil, true},
     {Vector3.new(17.02, -98.66, -387.86), 0.01, false},
     {Vector3.new(18.76, -99.90, -416.97), 0.01, false},
     {Vector3.new(-87.45, -102.32, -431.01), 0.01, false},
@@ -93,70 +93,63 @@ local waypoints = {
     {Vector3.new(92.68, -48.71, -48.34), 0.01, false},
     {Vector3.new(43.29, -36.63, -41.88), 0.01, false},
     {Vector3.new(-6.70, -32.38, -129.97), 0.01, false},
-    {Vector3.new(-63.66, -35.00, -136.64), 3.5, false}, -- Durasi pangkas jadi 3.5 detik
+    {Vector3.new(-63.66, -35.00, -136.64), 3.5, false},
     {Vector3.new(-65.00, -35.03, -97.20), 0.01, false},
     {Vector3.new(-96.43, -35.47, -105.77), 0.01, false},
     {Vector3.new(-122.10, -36.63, -129.21), 0.01, false},
 }
 
--- FUNGSI HIT AURA (Mencari dan Memukul Gold Node)
-local function doHitAura()
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    local myPos = char.HumanoidRootPart.Position
-
-    -- Cari objek bernama Gold Node di seluruh Workspace
+-- FUNGSI HIT AURA (Diperpendek & Aman)
+local function hitAura(hrp)
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == "Gold Node" and obj:IsA("BasePart") then
-            local distance = (obj.Position - myPos).Magnitude
-            
-            -- Jika jaraknya dekat (masuk radius hit 15 studs)
-            if distance <= 15 then
-                -- Kita coba tembak server pake 3 tebakan struktur table terkuat:
+            if (obj.Position - hrp.Position).Magnitude <= 15 then
                 pcall(function()
-                    -- Tebakan 1: Kirim CFrame posisi target
                     Packets.SwingTool.send({CFrame = obj.CFrame, Target = obj})
-                    -- Tebakan 2: Kirim CFrame posisi kita sendiri + Target
-                    Packets.SwingTool.send({CFrame = char.HumanoidRootPart.CFrame, Node = obj})
-                    -- Tebakan 3: Format bungkus standar game survival
-                    Packets.SwingTool.send({target = obj, cframe = obj.CFrame})
+                    Packets.SwingTool.send({CFrame = hrp.CFrame, Node = obj})
                 end)
             end
         end
     end
 end
 
--- Loop utama Hit Aura (berjalan di background setiap 0.2 detik)
+-- EKSEKUSI UTAMA (Auto Walk + Aura nempel di loop)
 task.spawn(function()
-    while true do
-        doHitAura()
-        task.wait(0.2)
+    local speed = 16
+    
+    -- Ambil RootPart tanpa nunggu loop tak terbatas
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart", 10)
+    
+    if not hrp then 
+        warn("HumanoidRootPart ga ketemu, bro!")
+        return 
+    end
+
+    for _, wp in ipairs(waypoints) do
+        local targetPos = wp[1]
+        local delayTime = wp[2]
+        
+        -- Selama proses jalan, Aura terus mukul background
+        local reached = false
+        local distance = (targetPos - hrp.Position).Magnitude
+        local duration = distance / speed
+        
+        local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(targetPos)})
+        tween:Play()
+        
+        -- Sambil nunggu jalan kelar, kita panggil Hit Aura
+        local connection
+        connection = game:GetService("RunService").Heartbeat:Connect(function()
+            if not hrp or not hrp.Parent then connection:Disconnect() return end
+            hitAura(hrp)
+        end)
+        
+        tween.Completed:Wait()
+        connection:Disconnect() -- Stop aura pas nyampe titik biar ga boros memory
+        
+        if delayTime then
+            task.wait(delayTime)
+        end
     end
 end)
-
--- LOGIC AUTO WALK (Waypoints)
-local speed = 16
-for i, wp in ipairs(waypoints) do
-    local targetPos = wp[1]
-    local delayTime = wp[2]
-    
-    local char = player.Character
-    while not char or not char:FindFirstChild("HumanoidRootPart") do
-        task.wait(0.5)
-        char = player.Character
-    end
-    
-    local hrp = char.HumanoidRootPart
-    local currentPos = hrp.Position
-    local distance = (targetPos - currentPos).Magnitude
-    local duration = distance / speed
-    
-    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)})
-    tween:Play()
-    tween.Completed:Wait()
-    
-    if delayTime then
-        task.wait(delayTime)
-    end
-end
